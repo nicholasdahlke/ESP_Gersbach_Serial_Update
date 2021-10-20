@@ -27,5 +27,4 @@ jobs:
       uses: espressif/esp-idf-ci-action@latest
       with:
         path: '.'
-    - name: Build Project
-      run: idf.py build
+

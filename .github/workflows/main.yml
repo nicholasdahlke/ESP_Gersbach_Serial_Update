@@ -26,6 +26,6 @@ jobs:
     - name: esp-idf build
       uses: espressif/esp-idf-ci-action@latest
       with:
-        path: 'ESP-Gersbach/'
+        path: 'main/'
     - name: Build Project
       run: idf.py build

@@ -27,3 +27,5 @@ jobs:
       uses: espressif/esp-idf-ci-action@latest
       with:
         path: 'ESP-Gersbach/'
+    - name: Build Project
+      run: idf.py build

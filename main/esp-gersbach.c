@@ -228,7 +228,7 @@ void execute_lid_task(lid lid,int task)
         setMotor(lid.motor1);
         setMotor(lid.motor2);
         lid.moving = false;
-        update_endstop_state(lid);
+        update_state(lid);
     }
     if (task == task_open)
     {
@@ -236,10 +236,10 @@ void execute_lid_task(lid lid,int task)
         lid.motor2.dir = forward;
 
         lid.motor1.speed = 100;
-        setMotor(lid1.motor);
+        setMotor(lid.motor1);
         do {
             update_state(lid);
-        } while (!lid.motor1.motor_open);
+        } while (lid.motor1.motor_open.state);
         lid.motor1.speed = 0;
         setMotor(lid.motor1);
 
@@ -247,7 +247,7 @@ void execute_lid_task(lid lid,int task)
         setMotor(lid.motor2);
         do {
             update_state(lid);
-        } while (!lid.motor1.motor_open);
+        } while (!lid.motor1.motor_open.state);
         lid.motor2.speed = 0;
         setMotor(lid.motor2);
         lid.status = state_open;
@@ -258,10 +258,10 @@ void execute_lid_task(lid lid,int task)
         lid.motor2.dir = reverse;
 
         lid.motor1.speed = 100;
-        setMotor(lid1.motor);
+        setMotor(lid.motor1);
         do {
             update_state(lid);
-        } while (!lid.motor1.motor_closed);
+        } while (!lid.motor1.motor_closed.state);
         lid.motor1.speed = 0;
         setMotor(lid.motor1);
 
@@ -269,7 +269,7 @@ void execute_lid_task(lid lid,int task)
         setMotor(lid.motor2);
         do {
             update_state(lid);
-        } while (!lid.motor1.motor_closed);
+        } while (!lid.motor1.motor_closed.state);
         lid.motor2.speed = 0;
         setMotor(lid.motor2);
         lid.status = state_closed;

@@ -24,14 +24,18 @@
 #define M1_DIR 21
 #define M2_EN 6
 #define M2_DIR 26
+#define NUM_LIDS 1
 
 static const int RX_BUF_SIZE = 1024;
+
+QueueHandle_t queue;
 
 enum state
 {
     state_open,
     state_closed,
-    state_unknown
+    state_unknown,
+    state_failed
 };
 
 enum direction
@@ -72,38 +76,41 @@ typedef struct
     motor motor2;
 } lid;
 
-void setMotor(motor motor)
+
+
+void setMotor(motor *motor)
 {
-    gpio_pad_select_gpio(motor.dir_pin);
-    gpio_pad_select_gpio(motor.en_pin);
+    gpio_pad_select_gpio(motor->dir_pin);
+    gpio_pad_select_gpio(motor->en_pin);
 
-    gpio_pulldown_dis(motor.dir_pin);
-    gpio_pulldown_dis(motor.en_pin);
+    gpio_pulldown_dis(motor->dir_pin);
+    gpio_pulldown_dis(motor->en_pin);
 
-    gpio_pullup_dis(motor.dir_pin);
-    gpio_pullup_dis(motor.en_pin);
+    gpio_pullup_dis(motor->dir_pin);
+    gpio_pullup_dis(motor->en_pin);
 
-    gpio_set_direction(motor.dir_pin, GPIO_MODE_OUTPUT);
-    gpio_set_direction(motor.en_pin, GPIO_MODE_OUTPUT);
+    gpio_set_direction(motor->dir_pin, GPIO_MODE_OUTPUT);
+    gpio_set_direction(motor->en_pin, GPIO_MODE_OUTPUT);
 
-    switch (motor.speed)
+    switch (motor->speed)
     {
     case 100:
-        gpio_set_level(motor.en_pin, 1);
-        gpio_set_level(motor.dir_pin, motor.dir);
+        gpio_set_level(motor->en_pin, 1);
+        gpio_set_level(motor->dir_pin, motor->dir);
         break;
 
     case 0:
-        gpio_set_level(motor.en_pin, 0);
+        gpio_set_level(motor->en_pin, 0);
         break;
     default:
-        gpio_set_level(motor.en_pin, 0);
+        gpio_set_level(motor->en_pin, 0);
         break;
     }
 }
 
 
 void status_led_control(u_int32_t led, int value)
+
 {
     gpio_pad_select_gpio(led);
     gpio_pulldown_dis(led);
@@ -111,6 +118,94 @@ void status_led_control(u_int32_t led, int value)
     gpio_set_direction(led, GPIO_MODE_OUTPUT);
     gpio_set_level(led, value);
 }
+
+void update_endstop_state(endstop * endstop)
+{
+    if(endstop->is_configured)
+    {
+        endstop->state = !gpio_get_level(endstop->state);
+    }
+}
+
+void update_state(lid * lid)
+{
+    update_endstop_state(&lid->motor1.motor_closed);
+    update_endstop_state(&lid->motor1.motor_open);
+    update_endstop_state(&lid->motor2.motor_closed);
+    update_endstop_state(&lid->motor2.motor_open);
+
+    if (lid->motor1.motor_closed.state && lid->motor2.motor_closed.state)
+    {
+        lid->status = state_closed;
+    } else if (lid->motor1.motor_open.state && lid->motor2.motor_open.state)
+    {
+        lid->status = state_open;
+    } else if ((lid->motor1.motor_closed.state && lid->motor1.motor_open.state) || (lid->motor2.motor_closed.state && lid->motor2.motor_open.state))
+    {
+        lid->status = state_failed;
+    } else {
+        lid->status = state_unknown;
+    }
+}
+
+void execute_lid_task(lid * lid,int task)
+{
+    if (task == task_stop)
+    {
+        lid->motor1.speed = 0;
+        lid->motor2.speed = 0;
+        setMotor(&lid->motor1);
+        setMotor(&lid->motor2);
+        lid->moving = false;
+        update_state(lid);
+    }
+    if (task == task_open)
+    {
+        lid->motor1.dir = forward;
+        lid->motor2.dir = forward;
+
+        lid->motor1.speed = 100;
+        setMotor(&lid->motor1);
+        do {
+            update_state(lid);
+        } while (lid->motor1.motor_open.state);
+        lid->motor1.speed = 0;
+        setMotor(&lid->motor1);
+
+        lid->motor2.speed = 100;
+        setMotor(&lid->motor2);
+        do {
+            update_state(lid);
+        } while (!lid->motor1.motor_open.state);
+        lid->motor2.speed = 0;
+        setMotor(&lid->motor2);
+        lid->status = state_open;
+    }
+    if (task == task_open)
+    {
+        lid->motor1.dir = reverse;
+        lid->motor2.dir = reverse;
+
+        lid->motor1.speed = 100;
+        setMotor(&lid->motor1);
+        do {
+            update_state(lid);
+        } while (!lid->motor1.motor_closed.state);
+        lid->motor1.speed = 0;
+        setMotor(&lid->motor1);
+
+        lid->motor2.speed = 100;
+        setMotor(&lid->motor2);
+        do {
+            update_state(lid);
+        } while (!lid->motor1.motor_closed.state);
+        lid->motor2.speed = 0;
+        setMotor(&lid->motor2);
+        lid->status = state_closed;
+    }
+
+}
+
 
 void readButtons(void *pVParameter)
 {
@@ -140,6 +235,7 @@ void readButtons(void *pVParameter)
     while (1)
     {
         uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 20 / portTICK_RATE_MS);
+
         if (gpio_get_level(BUTTON_1) || *data == 'a')
         {
             //printf("Button 1 pressed");
@@ -147,8 +243,8 @@ void readButtons(void *pVParameter)
             motor2.dir = forward;
             motor1.speed = 100;
             motor2.speed = 100;
-            setMotor(motor1);
-            setMotor(motor2);
+            setMotor(&motor1);
+            setMotor(&motor2);
             status_led_control(LED_2, 1);
         }
         if (gpio_get_level(BUTTON_2) || *data == 'b')
@@ -158,8 +254,8 @@ void readButtons(void *pVParameter)
             motor2.speed = 100;
             motor1.dir = reverse;
             motor2.dir = reverse;
-            setMotor(motor1);
-            setMotor(motor2);
+            setMotor(&motor1);
+            setMotor(&motor2);
             status_led_control(LED_2, 1);
         }
         if (gpio_get_level(BUTTON_3) || *data == 'c')
@@ -167,125 +263,38 @@ void readButtons(void *pVParameter)
             //printf("Button 3 pressed");
             motor1.speed = 0;
             motor2.speed = 0;
-            setMotor(motor1);
-            setMotor(motor2);
+            setMotor(&motor1);
+            setMotor(&motor2);
             status_led_control(LED_2, 0);
         }
-        if (!gpio_get_level(CON1_1))
+        for (int i = 0; i < NUM_LIDS; i++)
         {
-            status_led_control(LED_3, 1);           
+            lid lid;
+            xQueueReceive(queue, &lid, (TickType_t) 0);
+            if (*data == 'd') //open
+            {
+                execute_lid_task(&lid, task_open);
+            }
+            if (*data == 'e') //close
+            {
+                execute_lid_task(&lid, task_close);
+            }
+            if (*data == 'f') //stop
+            {
+                execute_lid_task(&lid, task_stop);
+            }
         }
-        if (!gpio_get_level(CON1_2))
-        {
-            status_led_control(LED_3,0);
-        }
-        
-        
     }
 }
 
-void update_endstop_state(endstop endstop)
+void init_endstop(endstop * endstop)
 {
-    if(endstop.is_configured)
-    {
-        endstop.state = !gpio_get_level(endstop.state);
-    }
-}
-
-void init_endstop(endstop endstop)
-{
-    gpio_set_direction(endstop.pin, GPIO_MODE_INPUT);
-    gpio_pulldown_dis(endstop.pin);
-    gpio_pullup_dis(endstop.pin);
-    endstop.is_configured = true;
+    gpio_set_direction(endstop->pin, GPIO_MODE_INPUT);
+    gpio_pulldown_dis(endstop->pin);
+    gpio_pullup_dis(endstop->pin);
+    endstop->is_configured = true;
     update_endstop_state(endstop);
 }
-
-void update_state(lid lid)
-{
-    update_endstop_state(lid.motor1.motor_closed);
-    update_endstop_state(lid.motor1.motor_open);
-    update_endstop_state(lid.motor2.motor_closed);
-    update_endstop_state(lid.motor2.motor_open);
-
-    if (lid.motor1.motor_closed.state && lid.motor2.motor_closed.state)
-    {
-        lid.status = state_closed;
-    } else if (lid.motor1.motor_open.state && lid.motor2.motor_open.state)
-    {
-        lid.status = state_open;
-    } else {
-        lid.status = state_unknown;
-    }
-}
-
-void execute_lid_task(lid lid,int task)
-{
-    if (task == task_stop)
-    {
-        lid.motor1.speed = 0;
-        lid.motor2.speed = 0;
-        setMotor(lid.motor1);
-        setMotor(lid.motor2);
-        lid.moving = false;
-        update_state(lid);
-    }
-    if (task == task_open)
-    {
-        lid.motor1.dir = forward;
-        lid.motor2.dir = forward;
-
-        lid.motor1.speed = 100;
-        setMotor(lid.motor1);
-        do {
-            update_state(lid);
-        } while (lid.motor1.motor_open.state);
-        lid.motor1.speed = 0;
-        setMotor(lid.motor1);
-
-        lid.motor2.speed = 100;
-        setMotor(lid.motor2);
-        do {
-            update_state(lid);
-        } while (!lid.motor1.motor_open.state);
-        lid.motor2.speed = 0;
-        setMotor(lid.motor2);
-        lid.status = state_open;
-    }
-    if (task == task_open)
-    {
-        lid.motor1.dir = reverse;
-        lid.motor2.dir = reverse;
-
-        lid.motor1.speed = 100;
-        setMotor(lid.motor1);
-        do {
-            update_state(lid);
-        } while (!lid.motor1.motor_closed.state);
-        lid.motor1.speed = 0;
-        setMotor(lid.motor1);
-
-        lid.motor2.speed = 100;
-        setMotor(lid.motor2);
-        do {
-            update_state(lid);
-        } while (!lid.motor1.motor_closed.state);
-        lid.motor2.speed = 0;
-        setMotor(lid.motor2);
-        lid.status = state_closed;
-    }
-
-}
-
-/*
-void read_endstops(void *pvParameter)  //TODO: Implement better version of this thing
-    update_endstop_state(end1);
-    update_endstop_state(end2);
-    update_endstop_state(end3);
-    update_endstop_state(end4);
-    vTaskDelay(10 / portTICK_RATE_MS)
-}
-*/
 
 void init_uart(int baudrate) {
     const uart_config_t uart_config = {
@@ -307,34 +316,46 @@ void init_uart(int baudrate) {
 
 void app_main(void)
 {
-    motor motor1;
-    motor motor2;
+    queue = xQueueCreate(NUM_LIDS, sizeof(lid));
 
-    motor1.dir_pin = M1_DIR;
-    motor1.en_pin = M1_EN;
+    if (queue == NULL)
+    {
+        printf("Error creating queue");
+    }
 
-    motor2.dir_pin = M2_DIR;
-    motor2.en_pin = M2_EN;
+    for(int i = 0; i < NUM_LIDS; i++)
+    {
+        motor motor1;
+        motor motor2;
 
-    lid lid1;
-    lid1.motor1 = motor1;
-    lid1.motor2 = motor2;
-    lid1.moving = false;
+        motor1.dir_pin = M1_DIR;
+        motor1.en_pin = M1_EN;
 
-    endstop end1;
-    endstop end2;
-    endstop end3;
-    endstop end4;
+        motor2.dir_pin = M2_DIR;
+        motor2.en_pin = M2_EN;
 
-    end1.pin = CON1_1;
-    end2.pin = CON2_1;
-    end3.pin = CON1_2;
-    end4.pin = CON2_2;
+        lid lid1;
+        lid1.motor1 = motor1;
+        lid1.motor2 = motor2;
+        lid1.moving = false;
 
-    init_endstop(end1);
-    init_endstop(end2);
-    init_endstop(end3);
-    init_endstop(end4);
+        endstop end1;
+        endstop end2;
+        endstop end3;
+        endstop end4;
+
+        end1.pin = CON1_1;
+        end2.pin = CON2_1;
+        end3.pin = CON1_2;
+        end4.pin = CON2_2;
+
+        init_endstop(&end1);
+        init_endstop(&end2);
+        init_endstop(&end3);
+        init_endstop(&end4);
+
+        xQueueSend(queue, &lid1, (TickType_t) 0);
+    }
 
     status_led_control(LED_1, 1);
 

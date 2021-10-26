@@ -206,6 +206,11 @@ void execute_lid_task(lid * lid,int task)
 
 }
 
+void write_uart(char* data, int len)
+{
+    uart_write_bytes(UART_NUM_1, (const char*) data, len);
+}
+
 
 void readButtons(void *pVParameter)
 {
@@ -238,7 +243,8 @@ void readButtons(void *pVParameter)
 
         if (gpio_get_level(BUTTON_1) || *data == 'a')
         {
-            //printf("Button 1 pressed");
+            char* data = 'Button 1 pressed';
+            write_uart(data, strlen(data));
             motor1.dir = forward;
             motor2.dir = forward;
             motor1.speed = 100;
@@ -249,7 +255,8 @@ void readButtons(void *pVParameter)
         }
         if (gpio_get_level(BUTTON_2) || *data == 'b')
         {
-            //printf("Button 2 pressed");
+            char* data = 'Button 2 pressed';
+            write_uart(data, strlen(data));
             motor1.speed = 100;
             motor2.speed = 100;
             motor1.dir = reverse;
@@ -260,7 +267,8 @@ void readButtons(void *pVParameter)
         }
         if (gpio_get_level(BUTTON_3) || *data == 'c')
         {
-            //printf("Button 3 pressed");
+            char* data = 'Button 3 pressed';
+            write_uart(data, strlen(data));
             motor1.speed = 0;
             motor2.speed = 0;
             setMotor(&motor1);
@@ -313,7 +321,6 @@ void init_uart(int baudrate) {
     ESP_ERROR_CHECK(uart_set_pin(UART_NUM_1, U0TXD_GPIO_NUM, U0RXD_GPIO_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 }
 
-
 void app_main(void)
 {
     queue = xQueueCreate(NUM_LIDS, sizeof(lid));
@@ -360,7 +367,6 @@ void app_main(void)
     status_led_control(LED_1, 1);
 
     init_uart(115200);
-
     xTaskCreate(&readButtons, "readButtons", 4096, NULL, 5, NULL);
     //xTaskCreate(&read_endstops, "readEndstops", 1024, NULL, 5, NULL);
 }

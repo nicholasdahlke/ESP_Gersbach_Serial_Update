@@ -206,9 +206,11 @@ void execute_lid_task(lid * lid,int task)
 
 }
 
-void write_uart(char* data, int len)
+void write_uart(const char* data)
 {
-    uart_write_bytes(UART_NUM_1, (const char*) data, len);
+    const int len = strlen(data);
+    uart_write_bytes(UART_NUM_1,data, len);
+
 }
 
 
@@ -239,12 +241,16 @@ void readButtons(void *pVParameter)
 
     while (1)
     {
-        uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 20 / portTICK_RATE_MS);
+        char sendQueue[] = "";
+
+        if (sendQueue != "")
+        {
+
+        } else
 
         if (gpio_get_level(BUTTON_1) || *data == 'a')
         {
-            char* data = 'Button 1 pressed';
-            write_uart(data, strlen(data));
+            sendQueue = "Button 1 pressed";
             motor1.dir = forward;
             motor2.dir = forward;
             motor1.speed = 100;
@@ -255,8 +261,7 @@ void readButtons(void *pVParameter)
         }
         if (gpio_get_level(BUTTON_2) || *data == 'b')
         {
-            char* data = 'Button 2 pressed';
-            write_uart(data, strlen(data));
+            sendQueue = "Button 2 pressed";
             motor1.speed = 100;
             motor2.speed = 100;
             motor1.dir = reverse;
@@ -267,8 +272,7 @@ void readButtons(void *pVParameter)
         }
         if (gpio_get_level(BUTTON_3) || *data == 'c')
         {
-            char* data = 'Button 3 pressed';
-            write_uart(data, strlen(data));
+            sendQueue = "Button 3 pressed";
             motor1.speed = 0;
             motor2.speed = 0;
             setMotor(&motor1);
@@ -367,6 +371,6 @@ void app_main(void)
     status_led_control(LED_1, 1);
 
     init_uart(115200);
-    xTaskCreate(&readButtons, "readButtons", 4096, NULL, 5, NULL);
+    xTaskCreate(&readButtons, "readButtons", 1024*4, NULL, 5, NULL);
     //xTaskCreate(&read_endstops, "readEndstops", 1024, NULL, 5, NULL);
 }

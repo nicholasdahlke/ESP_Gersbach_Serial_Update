@@ -94,6 +94,9 @@ void setMotor(motor *motor)
 
     switch (motor->speed)
     {
+    case -1:
+        gpio_set_level(motor->en_pin,0);
+        break;
     case 100:
         gpio_set_level(motor->en_pin, 1);
         gpio_set_level(motor->dir_pin, motor->dir);
@@ -157,50 +160,67 @@ void execute_lid_task(lid * lid,int task)
         setMotor(&lid->motor1);
         setMotor(&lid->motor2);
         lid->moving = false;
-        update_state(lid);
     }
     if (task == task_open)
     {
         lid->motor1.dir = forward;
         lid->motor2.dir = forward;
-
-        lid->motor1.speed = 100;
-        setMotor(&lid->motor1);
-        do {
-            update_state(lid);
-        } while (lid->motor1.motor_open.state);
+        lid->motor2.speed = 100;
         lid->motor1.speed = 0;
         setMotor(&lid->motor1);
-
-        lid->motor2.speed = 100;
         setMotor(&lid->motor2);
-        do {
-            update_state(lid);
-        } while (!lid->motor1.motor_open.state);
-        lid->motor2.speed = 0;
-        setMotor(&lid->motor2);
+        while (1)
+        {
+            if(!gpio_get_level(lid->motor2.motor_open.pin))
+            {
+                lid->motor2.speed = 0;
+                setMotor(&lid->motor2);
+                break;
+            }
+        }
+        
+        lid->motor1.speed = 100;
+        setMotor(&lid->motor1);
+        while (1)
+        {
+            if (!gpio_get_level(lid->motor1.motor_open.pin))
+            {
+                lid->motor1.speed = 0;
+                setMotor(&lid->motor1);
+                break;
+            }
+        }
         lid->status = state_open;
     }
-    if (task == task_open)
+    if (task == task_close)
     {
         lid->motor1.dir = reverse;
         lid->motor2.dir = reverse;
-
         lid->motor1.speed = 100;
+        lid->motor2.speed = 0;
         setMotor(&lid->motor1);
-        do {
-            update_state(lid);
-        } while (!lid->motor1.motor_closed.state);
-        lid->motor1.speed = 0;
-        setMotor(&lid->motor1);
-
+        setMotor(&lid->motor2);
+        while (1)
+        {
+            if(!gpio_get_level(lid->motor1.motor_closed.pin))
+            {
+                lid->motor1.speed = 0;
+                setMotor(&lid->motor1);
+                break;
+            }
+        }
+        
         lid->motor2.speed = 100;
         setMotor(&lid->motor2);
-        do {
-            update_state(lid);
-        } while (!lid->motor1.motor_closed.state);
-        lid->motor2.speed = 0;
-        setMotor(&lid->motor2);
+        while (1)
+        {
+            if (!gpio_get_level(lid->motor2.motor_closed.pin))
+            {
+                lid->motor2.speed = 0;
+                setMotor(&lid->motor2);
+                break;
+            }
+        }
         lid->status = state_closed;
     }
 
@@ -211,6 +231,22 @@ void write_uart(const char* data)
     const int len = strlen(data);
     uart_write_bytes(UART_NUM_1,data, len);
 
+}
+
+void testEndstop(void *pVParameter)
+{
+    int gpio = CON2_1;
+    gpio_set_direction(gpio, GPIO_MODE_INPUT);
+    gpio_pulldown_dis(gpio);
+    gpio_pullup_dis(gpio);
+
+    if (gpio_get_level(gpio))
+    {
+        status_led_control(LED_3, 1);
+    } else {
+        status_led_control(LED_3, 0);
+    }
+    vTaskDelay(10 / portTICK_RATE_MS);
 }
 
 
@@ -241,16 +277,9 @@ void readButtons(void *pVParameter)
 
     while (1)
     {
-        char sendQueue[] = "";
-
-        if (sendQueue != "")
+        uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 20 / portTICK_RATE_MS);
+        if (gpio_get_level(BUTTON_1) || *data == 'a') //open
         {
-
-        } else
-
-        if (gpio_get_level(BUTTON_1) || *data == 'a')
-        {
-            sendQueue = "Button 1 pressed";
             motor1.dir = forward;
             motor2.dir = forward;
             motor1.speed = 100;
@@ -259,9 +288,8 @@ void readButtons(void *pVParameter)
             setMotor(&motor2);
             status_led_control(LED_2, 1);
         }
-        if (gpio_get_level(BUTTON_2) || *data == 'b')
+        if (gpio_get_level(BUTTON_2) || *data == 'b') //close
         {
-            sendQueue = "Button 2 pressed";
             motor1.speed = 100;
             motor2.speed = 100;
             motor1.dir = reverse;
@@ -270,31 +298,28 @@ void readButtons(void *pVParameter)
             setMotor(&motor2);
             status_led_control(LED_2, 1);
         }
-        if (gpio_get_level(BUTTON_3) || *data == 'c')
+        if (gpio_get_level(BUTTON_3) || *data == 'c') //stop
         {
-            sendQueue = "Button 3 pressed";
             motor1.speed = 0;
             motor2.speed = 0;
             setMotor(&motor1);
             setMotor(&motor2);
             status_led_control(LED_2, 0);
         }
-        for (int i = 0; i < NUM_LIDS; i++)
+
+        lid lid;
+        xQueueReceive(queue, &lid, (TickType_t) 0);
+        if (*data == 'd') //open
         {
-            lid lid;
-            xQueueReceive(queue, &lid, (TickType_t) 0);
-            if (*data == 'd') //open
-            {
-                execute_lid_task(&lid, task_open);
-            }
-            if (*data == 'e') //close
-            {
-                execute_lid_task(&lid, task_close);
-            }
-            if (*data == 'f') //stop
-            {
-                execute_lid_task(&lid, task_stop);
-            }
+            execute_lid_task(&lid, task_open);
+        }
+        if (*data == 'e') //close
+        {
+            execute_lid_task(&lid, task_close);
+        }
+        if (*data == 'f') //stop
+        {
+            execute_lid_task(&lid, task_stop);
         }
     }
 }
@@ -329,11 +354,6 @@ void app_main(void)
 {
     queue = xQueueCreate(NUM_LIDS, sizeof(lid));
 
-    if (queue == NULL)
-    {
-        printf("Error creating queue");
-    }
-
     for(int i = 0; i < NUM_LIDS; i++)
     {
         motor motor1;
@@ -345,10 +365,11 @@ void app_main(void)
         motor2.dir_pin = M2_DIR;
         motor2.en_pin = M2_EN;
 
-        lid lid1;
-        lid1.motor1 = motor1;
-        lid1.motor2 = motor2;
-        lid1.moving = false;
+        motor1.speed = -1;
+        motor2.speed = -1;
+
+        setMotor(&motor1);
+        setMotor(&motor2);
 
         endstop end1;
         endstop end2;
@@ -365,6 +386,16 @@ void app_main(void)
         init_endstop(&end3);
         init_endstop(&end4);
 
+        motor2.motor_closed = end1;
+        motor2.motor_open = end4;
+
+        motor1.motor_closed = end3;
+        motor1.motor_open = end2;
+
+        lid lid1;
+        lid1.motor1 = motor1;
+        lid1.motor2 = motor2;
+        lid1.moving = false;
         xQueueSend(queue, &lid1, (TickType_t) 0);
     }
 
@@ -372,5 +403,6 @@ void app_main(void)
 
     init_uart(115200);
     xTaskCreate(&readButtons, "readButtons", 1024*4, NULL, 5, NULL);
+    //xTaskCreate(&testEndstop, "testEndstop", 1024*2, NULL, 5, NULL);
     //xTaskCreate(&read_endstops, "readEndstops", 1024, NULL, 5, NULL);
 }

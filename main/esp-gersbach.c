@@ -122,35 +122,6 @@ void status_led_control(u_int32_t led, int value)
     gpio_set_level(led, value);
 }
 
-void update_endstop_state(endstop * endstop)
-{
-    if(endstop->is_configured)
-    {
-        endstop->state = !gpio_get_level(endstop->state);
-    }
-}
-
-void update_state(lid * lid)
-{
-    update_endstop_state(&lid->motor1.motor_closed);
-    update_endstop_state(&lid->motor1.motor_open);
-    update_endstop_state(&lid->motor2.motor_closed);
-    update_endstop_state(&lid->motor2.motor_open);
-
-    if (lid->motor1.motor_closed.state && lid->motor2.motor_closed.state)
-    {
-        lid->status = state_closed;
-    } else if (lid->motor1.motor_open.state && lid->motor2.motor_open.state)
-    {
-        lid->status = state_open;
-    } else if ((lid->motor1.motor_closed.state && lid->motor1.motor_open.state) || (lid->motor2.motor_closed.state && lid->motor2.motor_open.state))
-    {
-        lid->status = state_failed;
-    } else {
-        lid->status = state_unknown;
-    }
-}
-
 void execute_lid_task(lid * lid,int task)
 {
     if (task == task_stop)

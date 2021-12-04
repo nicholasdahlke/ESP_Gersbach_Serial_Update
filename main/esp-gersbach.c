@@ -35,7 +35,7 @@ enum state
     state_open,
     state_closed,
     state_unknown,
-    state_failed
+    state_moving
 };
 
 enum direction
@@ -71,7 +71,6 @@ typedef struct
 typedef struct
 {
     enum state status;
-    bool moving;
     motor motor1;
     motor motor2;
 } lid;
@@ -126,20 +125,23 @@ void execute_lid_task(lid * lid,int task)
 {
     if (task == task_stop)
     {
+        printf("stopping");
         lid->motor1.speed = 0;
         lid->motor2.speed = 0;
         setMotor(&lid->motor1);
         setMotor(&lid->motor2);
-        lid->moving = false;
+        lid->status = state_unknown;
     }
     if (task == task_open)
     {
+        printf("opening");
         lid->motor1.dir = forward;
         lid->motor2.dir = forward;
         lid->motor2.speed = 100;
         lid->motor1.speed = 0;
         setMotor(&lid->motor1);
         setMotor(&lid->motor2);
+        lid->status = state_moving;
         while (1)
         {
             if(!gpio_get_level(lid->motor2.motor_open.pin))
@@ -165,12 +167,14 @@ void execute_lid_task(lid * lid,int task)
     }
     if (task == task_close)
     {
+        printf("closing");
         lid->motor1.dir = reverse;
         lid->motor2.dir = reverse;
         lid->motor1.speed = 100;
         lid->motor2.speed = 0;
         setMotor(&lid->motor1);
         setMotor(&lid->motor2);
+        lid->status = state_moving;
         while (1)
         {
             if(!gpio_get_level(lid->motor1.motor_closed.pin))
@@ -204,32 +208,39 @@ void write_uart(const char* data)
 
 }
 
+void printStatus(lid * lid)
+{
+    char lid_state_moving[] = ":state:moving:\n";
+    char lid_state_open[] = ":state:open:\n";
+    char lid_state_closed[] = ":state:closed:\n";
+    char lid_state_unknown[] = ":state:unknown:\n";
 
+    if(lid->status == state_open){
+        printf(lid_state_open);
+    }
+    if (lid->status == state_closed)
+    {
+        printf(lid_state_closed);
+    }
+    if (lid->status == state_unknown)
+    {
+        printf(lid_state_unknown);
+    }
+    if (lid->status == state_moving)
+    {
+        printf(lid_state_moving);
+    }
+}
 
 void readButtons(void *pVParameter)
 {
     uint8_t *data = (uint8_t *) malloc(RX_BUF_SIZE);
-
-    motor motor1;
-    motor motor2;
-
-    motor1.dir_pin = M1_DIR;
-    motor1.en_pin = M1_EN;
-
-    motor2.dir_pin = M2_DIR;
-    motor2.en_pin = M2_EN;
     
     gpio_set_direction(BUTTON_1, GPIO_MODE_INPUT);
     gpio_set_direction(BUTTON_2, GPIO_MODE_INPUT);
     gpio_set_direction(BUTTON_3, GPIO_MODE_INPUT);
     gpio_set_direction(CON2_1, GPIO_MODE_INPUT);
     gpio_set_direction(CON2_2, GPIO_MODE_INPUT);
-
-    gpio_pulldown_dis(CON2_1);
-    gpio_pulldown_dis(CON2_2);
-
-    gpio_pullup_dis(CON2_1);
-    gpio_pullup_dis(CON2_2);
 
     while (1)
     {
@@ -260,6 +271,10 @@ void readButtons(void *pVParameter)
         if (*data == 'f') //stop
         {
             execute_lid_task(&lid, task_stop);
+        }
+        if (*data == 'g') //print status
+        {
+            printStatus(&lid);
         }
     }
 }
@@ -334,7 +349,6 @@ void app_main(void)
         lid lid1;
         lid1.motor1 = motor1;
         lid1.motor2 = motor2;
-        lid1.moving = false;
         xQueueSend(queue, &lid1, (TickType_t) 0);
     }
 

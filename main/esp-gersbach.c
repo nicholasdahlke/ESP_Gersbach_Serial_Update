@@ -204,21 +204,6 @@ void write_uart(const char* data)
 
 }
 
-void testEndstop(void *pVParameter)
-{
-    int gpio = CON2_1;
-    gpio_set_direction(gpio, GPIO_MODE_INPUT);
-    gpio_pulldown_dis(gpio);
-    gpio_pullup_dis(gpio);
-
-    if (gpio_get_level(gpio))
-    {
-        status_led_control(LED_3, 1);
-    } else {
-        status_led_control(LED_3, 0);
-    }
-    vTaskDelay(10 / portTICK_RATE_MS);
-}
 
 
 void readButtons(void *pVParameter)
@@ -249,37 +234,21 @@ void readButtons(void *pVParameter)
     while (1)
     {
         uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 20 / portTICK_RATE_MS);
+        lid lid;
+        xQueueReceive(queue, &lid, (TickType_t) 0);
         if (gpio_get_level(BUTTON_1) || *data == 'a') //open
         {
-            motor1.dir = forward;
-            motor2.dir = forward;
-            motor1.speed = 100;
-            motor2.speed = 100;
-            setMotor(&motor1);
-            setMotor(&motor2);
-            status_led_control(LED_2, 1);
+            execute_lid_task(&lid, task_open);
         }
         if (gpio_get_level(BUTTON_2) || *data == 'b') //close
         {
-            motor1.speed = 100;
-            motor2.speed = 100;
-            motor1.dir = reverse;
-            motor2.dir = reverse;
-            setMotor(&motor1);
-            setMotor(&motor2);
-            status_led_control(LED_2, 1);
+            execute_lid_task(&lid, task_close);
         }
         if (gpio_get_level(BUTTON_3) || *data == 'c') //stop
         {
-            motor1.speed = 0;
-            motor2.speed = 0;
-            setMotor(&motor1);
-            setMotor(&motor2);
-            status_led_control(LED_2, 0);
+            execute_lid_task(&lid, task_stop);
         }
 
-        lid lid;
-        xQueueReceive(queue, &lid, (TickType_t) 0);
         if (*data == 'd') //open
         {
             execute_lid_task(&lid, task_open);
@@ -301,7 +270,6 @@ void init_endstop(endstop * endstop)
     gpio_pulldown_dis(endstop->pin);
     gpio_pullup_dis(endstop->pin);
     endstop->is_configured = true;
-    update_endstop_state(endstop);
 }
 
 void init_uart(int baudrate) {
@@ -374,6 +342,4 @@ void app_main(void)
 
     init_uart(115200);
     xTaskCreate(&readButtons, "readButtons", 1024*4, NULL, 5, NULL);
-    //xTaskCreate(&testEndstop, "testEndstop", 1024*2, NULL, 5, NULL);
-    //xTaskCreate(&read_endstops, "readEndstops", 1024, NULL, 5, NULL);
 }

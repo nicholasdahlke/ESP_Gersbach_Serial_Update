@@ -123,9 +123,10 @@ void status_led_control(u_int32_t led, int value)
 
 void execute_lid_task(lid * lid,int task)
 {
+    static const char* TAG = "MyModule";
     if (task == task_stop)
     {
-        printf("stopping");
+        ESP_LOGI(TAG, "Stoppimg");
         lid->motor1.speed = 0;
         lid->motor2.speed = 0;
         setMotor(&lid->motor1);
@@ -134,7 +135,7 @@ void execute_lid_task(lid * lid,int task)
     }
     if (task == task_open)
     {
-        printf("opening");
+        ESP_LOGI(TAG, "Opening");
         lid->motor1.dir = forward;
         lid->motor2.dir = forward;
         lid->motor2.speed = 100;
@@ -166,8 +167,8 @@ void execute_lid_task(lid * lid,int task)
         lid->status = state_open;
     }
     if (task == task_close)
-    {
-        printf("closing");
+    {        
+        ESP_LOGI(TAG, "closing");
         lid->motor1.dir = reverse;
         lid->motor2.dir = reverse;
         lid->motor1.speed = 100;
@@ -355,5 +356,7 @@ void app_main(void)
     status_led_control(LED_1, 1);
 
     init_uart(115200);
-    xTaskCreate(&readButtons, "readButtons", 1024*4, NULL, 5, NULL);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    printf("testz\n");
+    xTaskCreate(&readButtons, "readButtons", 1024*8, NULL, 5, NULL);
 }
